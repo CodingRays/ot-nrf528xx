@@ -60,6 +60,7 @@
 #include <nrf.h>
 #include <nrf_802154.h>
 #include <nrf_802154_pib.h>
+#include <nrf_802154_ack_data.h>
 
 #include <openthread-core-config.h>
 #include <openthread/config.h>
@@ -1387,17 +1388,112 @@ static void updateIeData(otInstance *aInstance, otShortAddress aShortAddr, const
         nrf_802154_ack_data_clear(extAddr, true, NRF_802154_ACK_DATA_IE);
     }
 }
+
+static void addShortIeData(otInstance *aInstance, otShortAddress aShortAddr)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+
+    int8_t  offset = 0;
+    uint8_t ackIeData[OT_ACK_IE_MAX_SIZE];
+    uint8_t shortAddr[SHORT_ADDRESS_SIZE];
+#if OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
+    uint8_t      enhAckProbingDataLen = 0;
+    otMacAddress macAddress;
+    macAddress.mType                  = OT_MAC_ADDRESS_TYPE_SHORT;
+    macAddress.mAddress.mShortAddress = aShortAddr;
+#endif
+
+#if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
+    if (sCslPeriod > 0)
+    {
+        memcpy(ackIeData, sCslIeHeader, OT_IE_HEADER_SIZE);
+        offset += OT_IE_HEADER_SIZE + OT_CSL_IE_SIZE; // reserve space for CSL IE
+    }
+#endif
+
+#if OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
+    if ((enhAckProbingDataLen = otLinkMetricsEnhAckGetDataLen(&macAddress)) > 0)
+    {
+        offset += otMacFrameGenerateEnhAckProbingIe(ackIeData + offset, NULL, enhAckProbingDataLen);
+    }
+#endif
+
+    convertShortAddress(shortAddr, aShortAddr);
+
+    nrf_802154_ack_data_set(shortAddr, false, ackIeData, offset, NRF_802154_ACK_DATA_IE);
+}
+
+static void addExtIeData(otInstance *aInstance, const otExtAddress *aExtAddr)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+
+    int8_t  offset = 0;
+    uint8_t ackIeData[OT_ACK_IE_MAX_SIZE];
+    uint8_t extAddr[OT_EXT_ADDRESS_SIZE];
+#if OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
+    uint8_t      enhAckProbingDataLen = 0;
+    otMacAddress macAddress;
+    macAddress.mType                  = OT_MAC_ADDRESS_TYPE_EXTENDED;
+    macAddress.mAddress.mExtAddress   = *aExtAddr;
+#endif
+
+#if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
+    if (sCslPeriod > 0)
+    {
+        memcpy(ackIeData, sCslIeHeader, OT_IE_HEADER_SIZE);
+        offset += OT_IE_HEADER_SIZE + OT_CSL_IE_SIZE; // reserve space for CSL IE
+    }
+#endif
+
+#if OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
+    if ((enhAckProbingDataLen = otLinkMetricsEnhAckGetDataLen(&macAddress)) > 0)
+    {
+        offset += otMacFrameGenerateEnhAckProbingIe(ackIeData + offset, NULL, enhAckProbingDataLen);
+    }
+#endif
+
+    convertExtAddress(extAddr, aExtAddr);
+
+    nrf_802154_ack_data_set(extAddr, true, ackIeData, offset, NRF_802154_ACK_DATA_IE);
+}
 #endif // OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE || OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
 
 #if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
 otError otPlatRadioEnableCsl(otInstance         *aInstance,
-                             uint32_t            aCslPeriod,
-                             otShortAddress      aShortAddr,
-                             const otExtAddress *aExtAddr)
+                             uint32_t            aCslPeriod)
 {
     sCslPeriod = aCslPeriod;
 
-    updateIeData(aInstance, aShortAddr, aExtAddr);
+    nrf_802154_ack_data_reset(false, NRF_802154_ACK_DATA_IE);
+    nrf_802154_ack_data_reset(true, NRF_802154_ACK_DATA_IE);
+
+    return OT_ERROR_NONE;
+}
+
+otError otPlatRadioClearCslShortEntries(otInstance *aInstance)
+{
+    nrf_802154_ack_data_reset(false, NRF_802154_ACK_DATA_IE);
+
+    return OT_ERROR_NONE;
+}
+
+otError otPlatRadioClearCslExtEntries(otInstance *aInstance)
+{
+    nrf_802154_ack_data_reset(true, NRF_802154_ACK_DATA_IE);
+
+    return OT_ERROR_NONE;
+}
+
+otError otPlatRadioAddCslShortEntry(otInstance *aInstance, otShortAddress aShortAddress)
+{
+    addShortIeData(aInstance, aShortAddress);
+
+    return OT_ERROR_NONE;
+}
+
+otError otPlatRadioAddCslExtEntry(otInstance *aInstance, const otExtAddress *aExtAddress)
+{
+    addExtIeData(aInstance, aExtAddress);
 
     return OT_ERROR_NONE;
 }
